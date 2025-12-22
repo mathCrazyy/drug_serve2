@@ -1,0 +1,151 @@
+import { useState } from 'react';
+import { ImageUploader } from './components/ImageUploader';
+import { ImagePreview } from './components/ImagePreview';
+import { DrugInfoDisplay } from './components/DrugInfoDisplay';
+import { HistoryList } from './components/HistoryList';
+import { recognizeDrug } from './services/api';
+import type { DrugInfo, HistoryRecord } from './types';
+import './App.css';
+
+function App() {
+  const [selectedImages, setSelectedImages] = useState<Array<{ base64: string; name: string; type: string; file: File }>>([]);
+  const [recognizing, setRecognizing] = useState(false);
+  const [drugInfo, setDrugInfo] = useState<DrugInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const handleImagesSelected = (images: Array<{ base64: string; name: string; type: string; file: File }>) => {
+    setSelectedImages(prev => [...prev, ...images]);
+    setError(null);
+    setDrugInfo(null);
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleRecognize = async () => {
+    if (selectedImages.length === 0) {
+      setError('请至少选择一张图片');
+      return;
+    }
+
+    setRecognizing(true);
+    setError(null);
+    setDrugInfo(null);
+
+    try {
+      const images = selectedImages.map(img => ({
+        base64: img.base64,
+        name: img.name,
+        type: img.type
+      }));
+
+      const response = await recognizeDrug(images);
+
+      if (response.success && response.data) {
+        setDrugInfo(response.data.mergedData);
+        setSelectedImages([]);
+        setShowHistory(false);
+      } else {
+        setError(response.error || '识别失败');
+      }
+    } catch (e) {
+      setError(`识别失败: ${e instanceof Error ? e.message : '未知错误'}`);
+    } finally {
+      setRecognizing(false);
+    }
+  };
+
+  const handleRecordSelect = (record: HistoryRecord) => {
+    setSelectedRecord(record);
+    setDrugInfo(record.mergedData);
+    setShowHistory(false);
+  };
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1>药品识别系统</h1>
+        <div className="header-actions">
+          <button
+            onClick={() => {
+              setShowHistory(!showHistory);
+              setSelectedRecord(null);
+              setDrugInfo(null);
+            }}
+            className="btn-secondary"
+          >
+            {showHistory ? '返回识别' : '查看历史'}
+          </button>
+        </div>
+      </header>
+
+      <main className="app-main">
+        {showHistory ? (
+          <HistoryList onRecordSelect={handleRecordSelect} />
+        ) : (
+          <>
+            <div className="upload-section">
+              <ImageUploader
+                onImagesSelected={handleImagesSelected}
+                disabled={recognizing}
+              />
+              
+              {selectedImages.length > 0 && (
+                <>
+                  <ImagePreview
+                    images={selectedImages}
+                    onRemove={handleRemoveImage}
+                  />
+                  <div className="action-buttons">
+                    <button
+                      onClick={handleRecognize}
+                      disabled={recognizing}
+                      className="btn-primary"
+                    >
+                      {recognizing ? '识别中...' : '开始识别'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedImages([]);
+                        setDrugInfo(null);
+                        setError(null);
+                      }}
+                      disabled={recognizing}
+                      className="btn-secondary"
+                    >
+                      清空
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {error && (
+              <div className="error-message">
+                {error}
+              </div>
+            )}
+
+            {drugInfo && (
+              <DrugInfoDisplay drugInfo={drugInfo} loading={recognizing} />
+            )}
+
+            {selectedRecord && (
+              <div className="selected-record-info">
+                <h3>历史记录详情</h3>
+                <p>识别时间: {new Date(selectedRecord.timestamp).toLocaleString('zh-CN')}</p>
+                <p>图片数量: {selectedRecord.images.length}</p>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default App;
+

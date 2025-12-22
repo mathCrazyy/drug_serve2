@@ -1,7 +1,17 @@
+/*
+ * @Author: chunshengwu
+ * @Date: 2025-12-22 00:37:41
+ * @LastEditors: chunshengwu
+ * @LastEditTime: 2025-12-22 15:20:52
+ * @FilePath: /drug_serve2/frontend/src/services/api.ts
+ * @Description: 
+ * 
+ * Copyright (c) 2025 by ${git_name_email}, All Rights Reserved. 
+ */
 import type { RecognizeRequest, RecognizeResponse, HistoryResponse, HistoryRecord } from '../types';
 
 // 边缘函数API基础URL（实际部署时需要配置）
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${url}`, {

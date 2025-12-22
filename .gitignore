@@ -36,3 +36,9 @@ lerna-debug.log*
 edge-function/config.js
 frontend/.env
 
+# Build output (keep dist for deployment, but ignore node_modules)
+frontend/node_modules
+
+# Editor history
+.history/
+

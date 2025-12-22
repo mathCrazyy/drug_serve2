@@ -1,0 +1,25 @@
+{
+  "name": "drug-serve2",
+  "version": "1.0.0",
+  "description": "药品识别系统 - 基于阿里云ESA边缘应用",
+  "private": true,
+  "scripts": {
+    "install": "cd frontend && npm install",
+    "build": "cd frontend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mathCrazyy/drug_serve2.git"
+  },
+  "keywords": [
+    "drug-recognition",
+    "aliyun-esa",
+    "edge-computing",
+    "react",
+    "typescript"
+  ],
+  "author": "mathCrazyy",
+  "license": "MIT"
+}
+

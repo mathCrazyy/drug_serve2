@@ -51,16 +51,21 @@ export async function saveRecord(record) {
 1. 在阿里云ESA Pages控制台创建新站点
 2. 连接GitHub仓库：`mathCrazyy/drug_serve2`
 3. 选择分支：`main`
-4. 配置构建设置：
-   - **构建命令**：`npm run build`（已在根目录package.json中配置）
+4. 项目已包含 `esa.jsonc` 配置文件，会自动识别：
+   - **构建命令**：`npm run build`
    - **输出目录**：`frontend/dist`
-   - **根目录**：`.`（项目根目录）
-5. 配置环境变量（如需要）：
+   - **资源目录**：`frontend/dist`
+   - **根目录**：`.`
+5. 如果需要在控制台手动配置：
+   - **构建命令**：`npm run build`
+   - **输出目录**：`frontend/dist`
+   - **资源目录**：`frontend/dist`
+6. 配置环境变量（如需要）：
    ```
    VITE_API_BASE_URL=https://your-edge-function-url.com
    ```
-6. 点击部署，等待构建完成
-7. 获取访问URL
+7. 点击部署，等待构建完成
+8. 获取访问URL
 
 #### 方式2：手动上传构建产物
 

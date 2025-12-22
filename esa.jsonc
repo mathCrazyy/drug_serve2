@@ -1,15 +1,9 @@
 {
-  // 构建命令
-  "buildCommand": "npm run build",
-  // 安装命令
+  "name": "drug-serve2",
   "installCommand": "npm install",
-  // 输出目录（构建产物所在目录）
-  "outputDirectory": "frontend/dist",
-  // 根目录
-  "rootDirectory": ".",
-  // 资源目录（静态资源）
-  "assetsDirectory": "frontend/dist",
-  // 函数文件路径（边缘函数，本项目不需要）
-  // "functionFile": ""
+  "buildCommand": "npm run build",
+  "assets": {
+    "directory": "./frontend/dist",
+    "notFoundStrategy": "singlePageApplication"
+  }
 }
-

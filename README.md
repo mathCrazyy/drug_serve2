@@ -61,7 +61,24 @@ drug_serve2/
 
 ### 边缘函数配置
 
-编辑 `edge-function/config.js`：
+**方式1：使用环境变量（推荐，生产环境）**
+
+在阿里云ESA边缘函数中配置以下环境变量：
+
+```
+DOUBAO_API_BASE_URL=https://api.chatfire.site/v1/chat/completions
+DOUBAO_API_KEY=your-api-key-here
+DOUBAO_MODEL=doubao-1.5-vision-pro-250328
+DOUBAO_MAX_TOKENS=1000
+DOUBAO_TEMPERATURE=0.1
+STORAGE_PREFIX=drug_record:
+STORAGE_INDEX_PREFIX=drug_index:
+```
+
+**方式2：直接编辑配置文件（仅开发环境）**
+
+1. 复制 `edge-function/config.example.js` 为 `edge-function/config.js`
+2. 编辑 `edge-function/config.js` 并填入实际配置
 
 ```javascript
 export default {
@@ -79,13 +96,17 @@ export default {
 }
 ```
 
+⚠️ **注意**：`config.js` 已添加到 `.gitignore`，不会被提交到Git仓库。
+
 ### 前端API配置
 
-创建 `frontend/.env` 文件：
+创建 `frontend/.env` 文件（参考 `frontend/.env.example`）：
 
 ```
 VITE_API_BASE_URL=https://your-edge-function-url.com
 ```
+
+⚠️ **注意**：`.env` 文件已添加到 `.gitignore`，不会被提交到Git仓库。
 
 ## 安装和运行
 

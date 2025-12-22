@@ -32,3 +32,7 @@ lerna-debug.log*
 *.swo
 *~
 
+# Config files with sensitive information
+edge-function/config.js
+frontend/.env
+

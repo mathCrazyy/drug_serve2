@@ -1,4 +1,76 @@
-export function imageToBase64(file: File): Promise<string> {
+// 压缩图片
+function compressImage(file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // 计算压缩后的尺寸
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          } else {
+            width = (width * maxHeight) / height;
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('无法创建canvas上下文'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('图片压缩失败'));
+              return;
+            }
+            const compressedFile = new File([blob], file.name, {
+              type: file.type,
+              lastModified: Date.now()
+            });
+            resolve(compressedFile);
+          },
+          file.type,
+          quality
+        );
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function imageToBase64(file: File): Promise<string> {
+  // 如果图片大于2MB，先压缩
+  let processedFile = file;
+  if (file.size > 2 * 1024 * 1024) {
+    try {
+      processedFile = await compressImage(file, 1920, 1920, 0.8);
+      // 如果压缩后仍然很大，进一步压缩
+      if (processedFile.size > 2 * 1024 * 1024) {
+        processedFile = await compressImage(file, 1280, 1280, 0.7);
+      }
+    } catch (e) {
+      console.warn('图片压缩失败，使用原图:', e);
+      processedFile = file;
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -8,7 +80,7 @@ export function imageToBase64(file: File): Promise<string> {
       resolve(base64);
     };
     reader.onerror = reject;
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(processedFile);
   });
 }
 

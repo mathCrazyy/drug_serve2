@@ -16,7 +16,7 @@
    ```
    DOUBAO_API_BASE_URL=https://api.chatfire.site/v1/chat/completions
    DOUBAO_API_KEY=your-api-key-here
-   DOUBAO_MODEL=doubao-1.5-vision-pro-250328
+   DOUBAO_MODEL=doubao-seed-1-6-vision-250815
    DOUBAO_MAX_TOKENS=1000
    DOUBAO_TEMPERATURE=0.1
    STORAGE_PREFIX=drug_record:

@@ -5,7 +5,7 @@ export default {
   doubaoApi: {
     baseUrl: process.env.DOUBAO_API_BASE_URL || 'https://api.chatfire.site/v1/chat/completions',
     apiKey: process.env.DOUBAO_API_KEY || 'your-api-key-here',
-    model: process.env.DOUBAO_MODEL || 'doubao-1.5-vision-pro-250328',
+    model: process.env.DOUBAO_MODEL || 'doubao-seed-1-6-vision-250815',
     maxTokens: parseInt(process.env.DOUBAO_MAX_TOKENS || '1000'),
     temperature: parseFloat(process.env.DOUBAO_TEMPERATURE || '0.1')
   },

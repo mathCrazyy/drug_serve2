@@ -53,7 +53,7 @@
    - **缓存策略**：多层缓存优化，提升性能
 
 2. **AI视觉识别**：
-   - 集成豆包多模态大模型（doubao-1.5-vision-pro-250328）
+   - 集成豆包多模态大模型（doubao-seed-1-6-vision-250815）
    - 支持流式响应（SSE）和普通JSON响应
    - 智能解析JSON和正则表达式提取
    - 并发处理多张图片，提升识别效率
@@ -153,7 +153,7 @@ drug_serve2/
 ```
 DOUBAO_API_BASE_URL=https://api.chatfire.site/v1/chat/completions
 DOUBAO_API_KEY=your-api-key-here
-DOUBAO_MODEL=doubao-1.5-vision-pro-250328
+DOUBAO_MODEL=doubao-seed-1-6-vision-250815
 DOUBAO_MAX_TOKENS=1000
 DOUBAO_TEMPERATURE=0.1
 STORAGE_PREFIX=drug_record:

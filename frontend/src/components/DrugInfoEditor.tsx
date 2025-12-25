@@ -56,7 +56,7 @@ export function DrugInfoEditor({ drugInfo, onSave, onCancel }: DrugInfoEditorPro
             </label>
             <input
               type="text"
-              value={editedInfo[field.key] || ''}
+              value={String(editedInfo[field.key] || '')}
               onChange={(e) => handleFieldChange(field.key, e.target.value)}
               style={{
                 flex: 1,

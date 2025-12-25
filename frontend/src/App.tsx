@@ -70,7 +70,7 @@ function App() {
       const response = await saveDrug(editedInfo, selectedRecord?.id);
       if (response.success) {
         setError(null);
-        // 可以显示成功提示
+        // 显示成功提示
         alert('已保存到家庭药品清单');
         // 清空当前识别结果，允许继续上传
         setDrugInfo(null);
@@ -82,6 +82,11 @@ function App() {
     } catch (e) {
       setError(`保存失败: ${e instanceof Error ? e.message : '未知错误'}`);
     }
+  };
+  
+  const handleQuickSave = async (drugInfo: DrugInfo) => {
+    // 快速保存（不编辑，直接保存）
+    await handleSaveDrug(drugInfo);
   };
 
   return (
@@ -154,7 +159,7 @@ function App() {
                 <DrugInfoDisplay 
                   drugInfo={drugInfo} 
                   loading={recognizing}
-                  onSave={handleSaveDrug}
+                  onSave={handleQuickSave}
                   showEdit={true}
                 />
                 {/* 识别后仍可继续上传 */}

@@ -55,20 +55,36 @@ export function DrugInfoDisplay({ drugInfo, loading, onSave, showEdit = true }: 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
         <h3 style={{ margin: 0 }}>识别结果</h3>
         {showEdit && onSave && (
-          <button
-            onClick={() => setIsEditing(true)}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: '#1890ff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-          >
-            编辑
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => onSave(drugInfo)}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#52c41a',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              保存
+            </button>
+            <button
+              onClick={() => setIsEditing(true)}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#1890ff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+            >
+              编辑
+            </button>
+          </div>
         )}
       </div>
       

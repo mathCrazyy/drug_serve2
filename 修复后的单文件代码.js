@@ -471,34 +471,106 @@ async function recognizeDrugFromImage(imageBase64, retryCount = 0) {
   }
 }
 
-// ========== 存储操作（简化版）==========
+// ========== 存储操作 ==========
+// 注意：这是一个简化的内存存储实现（临时方案）
+// 实际部署时需要替换为阿里云ESA边缘存储API
+// 边缘函数是无状态的，这个内存存储会在函数重启后丢失
+// 生产环境必须使用持久化存储
+
+// 使用全局变量作为临时存储（仅用于测试）
+// 实际应该使用边缘存储API
+let memoryStorage = null;
+function getMemoryStorage() {
+  if (!memoryStorage) {
+    memoryStorage = new Map();
+  }
+  return memoryStorage;
+}
+
 async function saveRecord(record) {
   const id = record.id || generateId();
   const timestamp = record.timestamp || Date.now();
-  // 实际实现需要使用阿里云ESA边缘存储API
-  // 保存识别记录
   const recordKey = `${config.storage.prefix}${timestamp}:${id}`;
-  // TODO: 使用边缘存储API保存 recordKey -> JSON.stringify(record)
+  
+  // 临时使用内存存储
+  const storage = getMemoryStorage();
+  storage.set(recordKey, JSON.stringify(record));
+  
+  // 保存索引（用于查询）
+  const indexKey = `${config.storage.indexPrefix}all:${timestamp}:${id}`;
+  storage.set(indexKey, id);
   
   // 如果已保存到家庭药品清单，也保存一份
   if (record.saved) {
     const drugKey = `${config.storage.prefix}drug:${id}`;
-    // TODO: 使用边缘存储API保存 drugKey -> JSON.stringify(record.mergedData)
+    storage.set(drugKey, JSON.stringify(record));
+    
+    // 保存到药品清单索引
+    const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
+    storage.set(drugIndexKey, id);
   }
+  
+  // TODO: 实际部署时使用边缘存储API
+  // await edgeStorage.set(recordKey, JSON.stringify(record));
   
   return { id, key: recordKey };
 }
 
 async function getRecord(id) {
+  const storage = getMemoryStorage();
+  
+  // 查找所有可能的key
+  for (const [key, value] of storage.entries()) {
+    if (key.includes(`:${id}`) && !key.includes('index')) {
+      try {
+        return JSON.parse(value);
+      } catch (e) {
+        continue;
+      }
+    }
+  }
+  
   return null;
 }
 
 async function getHistoryRecords(page = 1, limit = 20, search = '') {
-  // TODO: 使用边缘存储API查询记录
-  // 1. 查询所有记录（按时间倒序）
-  // 2. 如果search不为空，过滤药品名称
-  // 3. 分页返回
-  return { records: [], total: 0, page, limit };
+  const storage = getMemoryStorage();
+  const allRecords = [];
+  const seenIds = new Set(); // 避免重复记录
+  
+  // 从内存存储中获取所有记录
+  for (const [key, value] of storage.entries()) {
+    // 只处理主记录（不包含index的）
+    if (key.startsWith(config.storage.prefix) && !key.includes('index')) {
+      try {
+        const record = JSON.parse(value);
+        
+        // 跳过已处理的记录
+        if (seenIds.has(record.id)) continue;
+        seenIds.add(record.id);
+        
+        // 如果search不为空，过滤药品名称
+        const drugName = record.mergedData?.name || '';
+        if (search && !drugName.includes(search)) {
+          continue;
+        }
+        
+        allRecords.push(record);
+      } catch (e) {
+        continue;
+      }
+    }
+  }
+  
+  // 按时间倒序排序
+  allRecords.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  
+  // 分页
+  const start = (page - 1) * limit;
+  const end = start + limit;
+  const records = allRecords.slice(start, end);
+  
+  return { records, total: allRecords.length, page, limit };
 }
 
 // 保存药品到家庭药品清单
@@ -510,15 +582,27 @@ async function saveDrugToInventory(drugInfo, recordId) {
   const drugRecord = {
     id,
     timestamp,
+    images: [],
+    recognitionResults: [],
     mergedData: { ...drugInfo, edited: true },
     saved: true,
     status: 'completed'
   };
   
-  // TODO: 使用边缘存储API保存
-  // 1. 保存到识别记录（如果recordId存在，更新；否则新建）
-  // 2. 保存到家庭药品清单索引
+  // 临时使用内存存储
+  const storage = getMemoryStorage();
   const drugKey = `${config.storage.prefix}drug:${id}`;
+  storage.set(drugKey, JSON.stringify(drugRecord));
+  
+  // 保存到药品清单索引
+  const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
+  storage.set(drugIndexKey, id);
+  
+  // 同时保存到主记录
+  const recordKey = `${config.storage.prefix}${timestamp}:${id}`;
+  storage.set(recordKey, JSON.stringify(drugRecord));
+  
+  // TODO: 实际部署时使用边缘存储API
   // await edgeStorage.set(drugKey, JSON.stringify(drugRecord));
   
   return { id, success: true };

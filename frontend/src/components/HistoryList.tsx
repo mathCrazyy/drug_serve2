@@ -5,9 +5,10 @@ import { DrugStatistics } from './DrugStatistics';
 
 interface HistoryListProps {
   onRecordSelect?: (record: HistoryRecord) => void;
+  refreshTrigger?: number; // 刷新触发器，当值变化时重新加载
 }
 
-export function HistoryList({ onRecordSelect }: HistoryListProps) {
+export function HistoryList({ onRecordSelect, refreshTrigger }: HistoryListProps) {
   const [records, setRecords] = useState<HistoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -23,9 +24,15 @@ export function HistoryList({ onRecordSelect }: HistoryListProps) {
       if (response.success && response.data) {
         setRecords(response.data.records);
         setTotal(response.data.total);
+      } else {
+        console.error('加载历史记录失败:', response.error);
+        setRecords([]);
+        setTotal(0);
       }
     } catch (e) {
       console.error('加载历史记录失败:', e);
+      setRecords([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -33,7 +40,7 @@ export function HistoryList({ onRecordSelect }: HistoryListProps) {
 
   useEffect(() => {
     loadHistory();
-  }, [page, search]);
+  }, [page, search, refreshTrigger]); // 添加 refreshTrigger 作为依赖
 
   const handleSearch = () => {
     setSearch(searchInput);
@@ -57,7 +64,24 @@ export function HistoryList({ onRecordSelect }: HistoryListProps) {
 
   return (
     <div style={{ marginTop: '20px' }}>
-      <h3>家庭药品清单</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+        <h3 style={{ margin: 0 }}>家庭药品清单</h3>
+        <button
+          onClick={loadHistory}
+          disabled={loading}
+          style={{
+            padding: '6px 12px',
+            backgroundColor: '#1890ff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            fontSize: '12px'
+          }}
+        >
+          {loading ? '刷新中...' : '刷新'}
+        </button>
+      </div>
       
       <DrugStatistics records={records} />
       

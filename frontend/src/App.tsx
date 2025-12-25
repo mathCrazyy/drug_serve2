@@ -14,6 +14,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0); // 用于触发历史记录刷新
 
   const handleImagesSelected = (images: Array<{ base64: string; name: string; type: string; file: File }>) => {
     setSelectedImages(prev => [...prev, ...images]);
@@ -76,6 +77,8 @@ function App() {
         setDrugInfo(null);
         setSelectedImages([]);
         setSelectedRecord(null);
+        // 触发历史记录刷新
+        setHistoryRefreshTrigger(prev => prev + 1);
       } else {
         setError(response.error || '保存失败');
       }
@@ -96,9 +99,14 @@ function App() {
         <div className="header-actions">
           <button
             onClick={() => {
-              setShowHistory(!showHistory);
+              const newShowHistory = !showHistory;
+              setShowHistory(newShowHistory);
               setSelectedRecord(null);
               setDrugInfo(null);
+              // 当切换到历史记录页面时，触发刷新
+              if (newShowHistory) {
+                setHistoryRefreshTrigger(prev => prev + 1);
+              }
             }}
             className="btn-secondary"
           >
@@ -109,7 +117,10 @@ function App() {
 
       <main className="app-main">
         {showHistory ? (
-          <HistoryList onRecordSelect={handleRecordSelect} />
+          <HistoryList 
+            onRecordSelect={handleRecordSelect} 
+            refreshTrigger={historyRefreshTrigger}
+          />
         ) : (
           <>
             <div className="upload-section">

@@ -18,7 +18,9 @@ export function DrugStatistics({ records }: DrugStatisticsProps) {
     const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     records.forEach(record => {
-      if (record.saved && record.mergedData) {
+      // 由于getHistoryRecords已经过滤了saved=true的记录，这里只需要检查mergedData
+      // 统计所有有药品信息的记录
+      if (record.mergedData) {
         statistics.total++;
         
         const category = record.mergedData.category || record.category || '未分类';
@@ -26,11 +28,18 @@ export function DrugStatistics({ records }: DrugStatisticsProps) {
 
         // 检查过期和临期
         if (record.mergedData.expiry_date) {
-          const expiryDate = new Date(record.mergedData.expiry_date);
-          if (expiryDate < now) {
-            statistics.expired++;
-          } else if (expiryDate <= thirtyDaysLater) {
-            statistics.expiring++;
+          try {
+            const expiryDate = new Date(record.mergedData.expiry_date);
+            if (!isNaN(expiryDate.getTime())) {
+              if (expiryDate < now) {
+                statistics.expired++;
+              } else if (expiryDate <= thirtyDaysLater) {
+                statistics.expiring++;
+              }
+            }
+          } catch (e) {
+            // 日期解析失败，跳过过期检查
+            console.warn('日期解析失败:', record.mergedData.expiry_date, e);
           }
         }
       }

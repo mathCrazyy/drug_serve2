@@ -477,17 +477,61 @@ async function recognizeDrugFromImage(imageBase64, retryCount = 0) {
 
 // 尝试获取边缘存储对象（根据ESA实际提供的API调整）
 function getEdgeStorage() {
-  // 方式1: 全局edgeStorage对象
+  // 方式1: ESA EdgeKV API（推荐）
+  // 根据官方文档：https://help.aliyun.com/zh/edge-security-acceleration/esa/user-guide/edge-storage-api
+  // 需要先创建NameSpace，然后通过 EdgeKV 类使用
+  const edgeKvNamespace = getEnv('EDGE_KV_NAMESPACE', '');
+  if (edgeKvNamespace) {
+    try {
+      // 尝试使用 ESA EdgeKV API
+      // 注意：EdgeKV 可能需要在运行时动态导入或通过全局对象访问
+      if (typeof EdgeKV !== 'undefined') {
+        const edgeKv = new EdgeKV({ namespace: edgeKvNamespace });
+        return {
+          async set(key, value) {
+            await edgeKv.put(key, value);
+          },
+          async get(key) {
+            try {
+              const result = await edgeKv.get(key, { type: 'text' });
+              return result || null;
+            } catch (e) {
+              // 如果key不存在，返回null
+              return null;
+            }
+          },
+          async delete(key) {
+            await edgeKv.delete(key);
+          },
+          async list(prefix) {
+            try {
+              // EdgeKV 可能支持 list 方法，需要根据实际API调整
+              const result = await edgeKv.list({ prefix: prefix });
+              return result.keys || [];
+            } catch (e) {
+              // 如果不支持list，返回空数组
+              console.warn('EdgeKV list方法不可用:', e);
+              return [];
+            }
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('EdgeKV初始化失败，尝试其他方式:', e);
+    }
+  }
+  
+  // 方式2: 全局edgeStorage对象
   if (typeof edgeStorage !== 'undefined' && edgeStorage) {
     return edgeStorage;
   }
   
-  // 方式2: 通过环境变量或全局对象
+  // 方式3: 通过globalThis访问
   if (typeof globalThis !== 'undefined' && globalThis.edgeStorage) {
     return globalThis.edgeStorage;
   }
   
-  // 方式3: 通过fetch调用存储API（如果ESA提供HTTP API）
+  // 方式4: 通过fetch调用存储API（如果ESA提供HTTP API）
   // 这种方式需要知道存储API的endpoint
   const storageEndpoint = getEnv('EDGE_STORAGE_ENDPOINT', '');
   if (storageEndpoint) {
@@ -519,8 +563,9 @@ function getEdgeStorage() {
     };
   }
   
-  // 方式4: 使用内存存储作为后备（仅用于测试）
+  // 方式5: 使用内存存储作为后备（仅用于测试）
   // 如果以上方式都不可用，使用内存存储（数据不会持久化）
+  console.warn('⚠️ 警告：使用内存存储（数据不会持久化），请配置ESA边缘存储');
   if (!globalThis._memoryStorage) {
     globalThis._memoryStorage = new Map();
   }

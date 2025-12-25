@@ -634,6 +634,8 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
       key.startsWith(config.storage.prefix) && !key.includes('index')
     );
     
+    console.log(`[getHistoryRecords] 找到 ${recordKeys.length} 个记录key`);
+    
     // 获取所有记录
     for (const key of recordKeys) {
       try {
@@ -645,6 +647,11 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
         // 跳过已处理的记录
         if (seenIds.has(record.id)) continue;
         seenIds.add(record.id);
+        
+        // 只返回已保存到家庭药品清单的记录（saved=true）
+        if (!record.saved) {
+          continue;
+        }
         
         // 如果search不为空，过滤药品名称
         const drugName = record.mergedData?.name || '';
@@ -658,10 +665,12 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
         continue;
       }
     }
+    
+    console.log(`[getHistoryRecords] 已保存的记录数: ${allRecords.length}`);
   } catch (e) {
     console.error('查询历史记录失败:', e);
     // 如果查询失败，返回空列表
-    return { records: [], total: 0, page, limit };
+    return { records: [], total: 0, page, limit, debug: { error: e.message } };
   }
   
   // 按时间倒序排序
@@ -682,6 +691,8 @@ async function saveDrugToInventory(drugInfo, recordId) {
   let timestamp = Date.now();
   let existingRecord = null;
   
+  console.log(`[saveDrugToInventory] 开始保存药品, recordId: ${recordId}, drugInfo:`, JSON.stringify(drugInfo));
+  
   // 如果recordId存在，尝试查找并更新已有记录
   if (recordId) {
     existingRecord = await getRecord(recordId);
@@ -691,6 +702,7 @@ async function saveDrugToInventory(drugInfo, recordId) {
       existingRecord.mergedData = { ...drugInfo, edited: true };
       existingRecord.saved = true;
       existingRecord.status = 'completed';
+      console.log(`[saveDrugToInventory] 更新已有记录: ${recordId}`);
     }
   }
   
@@ -706,6 +718,7 @@ async function saveDrugToInventory(drugInfo, recordId) {
       saved: true,
       status: 'completed'
     };
+    console.log(`[saveDrugToInventory] 创建新记录: ${id}`);
   }
   
   const recordStr = JSON.stringify(existingRecord);
@@ -714,18 +727,31 @@ async function saveDrugToInventory(drugInfo, recordId) {
     // 保存到多个位置，确保能查询到
     const recordKey = `${config.storage.prefix}${timestamp}:${id}`;
     await storage.set(recordKey, recordStr);
+    console.log(`[saveDrugToInventory] 保存主记录: ${recordKey}`);
     
     // 保存到药品清单专用key
     const drugKey = `${config.storage.prefix}drug:${id}`;
     await storage.set(drugKey, recordStr);
+    console.log(`[saveDrugToInventory] 保存药品记录: ${drugKey}`);
     
     // 保存到药品清单索引
     const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
     await storage.set(drugIndexKey, id);
+    console.log(`[saveDrugToInventory] 保存药品索引: ${drugIndexKey}`);
     
     // 保存到主索引
     const mainIndexKey = `${config.storage.indexPrefix}all:${timestamp}:${id}`;
     await storage.set(mainIndexKey, id);
+    console.log(`[saveDrugToInventory] 保存主索引: ${mainIndexKey}`);
+    
+    // 验证保存是否成功
+    const verifyKey = `${config.storage.prefix}${timestamp}:${id}`;
+    const verifyValue = await storage.get(verifyKey);
+    if (verifyValue) {
+      console.log(`[saveDrugToInventory] 验证保存成功: ${verifyKey}`);
+    } else {
+      console.error(`[saveDrugToInventory] 验证保存失败: ${verifyKey}`);
+    }
   } catch (e) {
     console.error('保存药品失败:', e);
     return { id, success: false, error: e.message };
@@ -1113,17 +1139,29 @@ export default {
         
         try {
           const result = await saveDrugToInventory(requestBody.drugInfo, requestBody.recordId);
-          return new Response(JSON.stringify({ 
-            success: true, 
-            data: result
-          }), {
-            status: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
-          });
+          if (result.success) {
+            return new Response(JSON.stringify({ 
+              success: true, 
+              data: result
+            }), {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+            });
+          } else {
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: result.error || '保存失败'
+            }), {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+            });
+          }
         } catch (e) {
+          console.error('保存药品异常:', e);
           return new Response(JSON.stringify({ 
             success: false, 
-            error: '保存失败: ' + e.message
+            error: '保存失败: ' + e.message,
+            stack: e.stack
           }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }

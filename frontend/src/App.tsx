@@ -3,7 +3,7 @@ import { ImageUploader } from './components/ImageUploader';
 import { ImagePreview } from './components/ImagePreview';
 import { DrugInfoDisplay } from './components/DrugInfoDisplay';
 import { HistoryList } from './components/HistoryList';
-import { recognizeDrug } from './services/api';
+import { recognizeDrug, saveDrug } from './services/api';
 import type { DrugInfo, HistoryRecord } from './types';
 import './App.css';
 
@@ -46,7 +46,8 @@ function App() {
 
       if (response.success && response.data) {
         setDrugInfo(response.data.mergedData);
-        setSelectedImages([]);
+        // 不清空图片，允许继续上传
+        // setSelectedImages([]);
         setShowHistory(false);
       } else {
         setError(response.error || '识别失败');
@@ -64,6 +65,25 @@ function App() {
     setShowHistory(false);
   };
 
+  const handleSaveDrug = async (editedInfo: DrugInfo) => {
+    try {
+      const response = await saveDrug(editedInfo, selectedRecord?.id);
+      if (response.success) {
+        setError(null);
+        // 可以显示成功提示
+        alert('已保存到家庭药品清单');
+        // 清空当前识别结果，允许继续上传
+        setDrugInfo(null);
+        setSelectedImages([]);
+        setSelectedRecord(null);
+      } else {
+        setError(response.error || '保存失败');
+      }
+    } catch (e) {
+      setError(`保存失败: ${e instanceof Error ? e.message : '未知错误'}`);
+    }
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -77,7 +97,7 @@ function App() {
             }}
             className="btn-secondary"
           >
-            {showHistory ? '返回识别' : '查看历史'}
+            {showHistory ? '返回识别' : '查看家庭药品清单'}
           </button>
         </div>
       </header>
@@ -130,7 +150,21 @@ function App() {
             )}
 
             {drugInfo && (
-              <DrugInfoDisplay drugInfo={drugInfo} loading={recognizing} />
+              <>
+                <DrugInfoDisplay 
+                  drugInfo={drugInfo} 
+                  loading={recognizing}
+                  onSave={handleSaveDrug}
+                  showEdit={true}
+                />
+                {/* 识别后仍可继续上传 */}
+                <div style={{ marginTop: '20px' }}>
+                  <ImageUploader
+                    onImagesSelected={handleImagesSelected}
+                    disabled={recognizing}
+                  />
+                </div>
+              </>
             )}
 
             {selectedRecord && (

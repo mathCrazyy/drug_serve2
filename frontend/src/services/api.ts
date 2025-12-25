@@ -8,7 +8,7 @@
  * 
  * Copyright (c) 2025 by ${git_name_email}, All Rights Reserved. 
  */
-import type { RecognizeRequest, RecognizeResponse, HistoryResponse, HistoryRecord } from '../types';
+import type { RecognizeRequest, RecognizeResponse, HistoryResponse, HistoryRecord, DrugInfo } from '../types';
 
 // 边缘函数API基础URL（实际部署时需要配置）
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -55,6 +55,13 @@ export async function getHistory(page: number = 1, limit: number = 20, search: s
 export async function getRecordDetail(id: string): Promise<{ success: boolean; data?: HistoryRecord; error?: string }> {
   return request<{ success: boolean; data?: HistoryRecord; error?: string }>(`/history/${id}`, {
     method: 'GET'
+  });
+}
+
+export async function saveDrug(drugInfo: DrugInfo, recordId?: string): Promise<{ success: boolean; error?: string }> {
+  return request<{ success: boolean; error?: string }>('/drugs/save', {
+    method: 'POST',
+    body: JSON.stringify({ drugInfo, recordId })
   });
 }
 

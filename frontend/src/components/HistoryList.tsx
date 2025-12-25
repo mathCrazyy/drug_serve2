@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getHistory, getRecordDetail } from '../services/api';
 import type { HistoryRecord } from '../types';
+import { DrugStatistics } from './DrugStatistics';
 
 interface HistoryListProps {
   onRecordSelect?: (record: HistoryRecord) => void;
@@ -56,7 +57,9 @@ export function HistoryList({ onRecordSelect }: HistoryListProps) {
 
   return (
     <div style={{ marginTop: '20px' }}>
-      <h3>历史记录</h3>
+      <h3>家庭药品清单</h3>
+      
+      <DrugStatistics records={records} />
       
       <div style={{ marginBottom: '15px', display: 'flex', gap: '10px' }}>
         <input
@@ -106,9 +109,38 @@ export function HistoryList({ onRecordSelect }: HistoryListProps) {
                     <span>截止日期: {record.mergedData.expiry_date}</span>
                   )}
                 </div>
-                <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>
-                  图片数量: {record.images.length}
+                <div style={{ fontSize: '12px', color: '#999', marginTop: '5px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>
+                    {record.mergedData.category && (
+                      <span style={{ marginRight: '10px', padding: '2px 8px', backgroundColor: '#e6f7ff', borderRadius: '4px' }}>
+                        {record.mergedData.category}
+                      </span>
+                    )}
+                    {record.saved && <span style={{ color: '#52c41a' }}>✓ 已保存</span>}
+                  </span>
+                  <span>图片数量: {record.images.length}</span>
                 </div>
+                {/* 过期提醒 */}
+                {record.mergedData.expiry_date && (() => {
+                  const expiryDate = new Date(record.mergedData.expiry_date);
+                  const now = new Date();
+                  const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                  
+                  if (expiryDate < now) {
+                    return (
+                      <div style={{ marginTop: '5px', padding: '5px', backgroundColor: '#f8d7da', color: '#dc3545', borderRadius: '4px', fontSize: '12px' }}>
+                        ⚠️ 已过期
+                      </div>
+                    );
+                  } else if (daysUntilExpiry <= 30) {
+                    return (
+                      <div style={{ marginTop: '5px', padding: '5px', backgroundColor: '#fff3cd', color: '#ff9800', borderRadius: '4px', fontSize: '12px' }}>
+                        ⚠️ 临期（{daysUntilExpiry}天后过期）
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             ))}
           </div>

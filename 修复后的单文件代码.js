@@ -274,7 +274,7 @@ async function recognizeDrugFromImage(imageBase64, retryCount = 0) {
       content: [
         {
           type: 'text',
-          text: '请仔细识别这张药品图片中的所有文字信息，包括药品名称、生产日期、有效期、批号、生产厂家等信息。请严格按照JSON格式返回结果，不要添加任何其他文字说明，只返回JSON对象。格式如下：{"name": "药品名称", "brand": "品牌", "manufacturer": "生产厂家", "production_date": "生产日期", "expiry_date": "有效期", "batch_number": "批号", "dosage_form": "剂型", "strength": "规格"}。如果某个字段在图片中找不到，该字段返回空字符串""，不要返回"无"或"无信息"。'
+          text: '请识别这张药品图片中的以下信息：1.药品名称 2.生产日期 3.截止日期（有效期）。请严格按照JSON格式返回，只返回JSON对象，不要添加任何其他文字说明。格式：{"name": "药品名称", "production_date": "生产日期", "expiry_date": "截止日期"}。如果某个字段找不到，返回空字符串""。'
         },
         {
           type: 'image_url',
@@ -282,7 +282,7 @@ async function recognizeDrugFromImage(imageBase64, retryCount = 0) {
         }
       ]
     }],
-    max_tokens: config.doubaoApi.maxTokens,
+    max_tokens: 500, // 减少token数量，只识别3个字段
     temperature: config.doubaoApi.temperature
   };
   
@@ -476,7 +476,17 @@ async function saveRecord(record) {
   const id = record.id || generateId();
   const timestamp = record.timestamp || Date.now();
   // 实际实现需要使用阿里云ESA边缘存储API
-  return { id, key: `${config.storage.prefix}${timestamp}:${id}` };
+  // 保存识别记录
+  const recordKey = `${config.storage.prefix}${timestamp}:${id}`;
+  // TODO: 使用边缘存储API保存 recordKey -> JSON.stringify(record)
+  
+  // 如果已保存到家庭药品清单，也保存一份
+  if (record.saved) {
+    const drugKey = `${config.storage.prefix}drug:${id}`;
+    // TODO: 使用边缘存储API保存 drugKey -> JSON.stringify(record.mergedData)
+  }
+  
+  return { id, key: recordKey };
 }
 
 async function getRecord(id) {
@@ -484,7 +494,34 @@ async function getRecord(id) {
 }
 
 async function getHistoryRecords(page = 1, limit = 20, search = '') {
+  // TODO: 使用边缘存储API查询记录
+  // 1. 查询所有记录（按时间倒序）
+  // 2. 如果search不为空，过滤药品名称
+  // 3. 分页返回
   return { records: [], total: 0, page, limit };
+}
+
+// 保存药品到家庭药品清单
+async function saveDrugToInventory(drugInfo, recordId) {
+  const id = recordId || generateId();
+  const timestamp = Date.now();
+  
+  // 构建药品记录
+  const drugRecord = {
+    id,
+    timestamp,
+    mergedData: { ...drugInfo, edited: true },
+    saved: true,
+    status: 'completed'
+  };
+  
+  // TODO: 使用边缘存储API保存
+  // 1. 保存到识别记录（如果recordId存在，更新；否则新建）
+  // 2. 保存到家庭药品清单索引
+  const drugKey = `${config.storage.prefix}drug:${id}`;
+  // await edgeStorage.set(drugKey, JSON.stringify(drugRecord));
+  
+  return { id, success: true };
 }
 
 // ========== 结果合并 ==========
@@ -836,6 +873,52 @@ export default {
             headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
           });
         }
+      } else if (method === 'POST' && pathname === '/drugs/save') {
+        // 保存药品到家庭药品清单
+        let requestBody = null;
+        try {
+          const text = await request.text();
+          if (text) {
+            requestBody = JSON.parse(text);
+          }
+        } catch (e) {
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: '请求体解析失败: ' + e.message
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+          });
+        }
+        
+        if (!requestBody || !requestBody.drugInfo) {
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: '缺少药品信息'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+          });
+        }
+        
+        try {
+          const result = await saveDrugToInventory(requestBody.drugInfo, requestBody.recordId);
+          return new Response(JSON.stringify({ 
+            success: true, 
+            data: result
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+          });
+        } catch (e) {
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: '保存失败: ' + e.message
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+          });
+        }
       } else if (method === 'GET' && (pathname.startsWith('/history') || pathname.includes('/history'))) {
         const result = await handleHistory(request, pathname, searchParams);
         return new Response(result.body, {
@@ -849,6 +932,7 @@ export default {
           message: '药品识别API服务运行正常',
           endpoints: {
             'POST /recognize': '识别药品图片',
+            'POST /drugs/save': '保存药品到家庭药品清单',
             'GET /history': '获取历史记录列表',
             'GET /history/:id': '获取单条记录详情'
           },
@@ -865,6 +949,27 @@ export default {
             'Content-Type': 'application/json; charset=utf-8'
           }
         });
+      } else if (method === 'GET' && pathname === '/recognize') {
+        // GET请求到/recognize，返回友好的错误提示
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: '/recognize 接口只支持 POST 方法，请使用 POST 请求',
+          availableEndpoints: [
+            'POST /recognize - 识别药品图片',
+            'POST /drugs/save - 保存药品到家庭药品清单',
+            'GET /history - 获取历史记录列表',
+            'GET /history/:id - 获取单条记录详情'
+          ],
+          debug: {
+            pathname: pathname,
+            method: method,
+            url: request.url || 'N/A',
+            hint: '请检查前端代码是否正确使用 POST 方法'
+          }
+        }), {
+          status: 405, // Method Not Allowed
+          headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
+        });
       } else {
         // 返回调试信息（开发时有用）
         return new Response(JSON.stringify({ 
@@ -872,6 +977,7 @@ export default {
           error: '接口不存在',
           availableEndpoints: [
             'POST /recognize - 识别药品图片',
+            'POST /drugs/save - 保存药品到家庭药品清单',
             'GET /history - 获取历史记录列表',
             'GET /history/:id - 获取单条记录详情'
           ],

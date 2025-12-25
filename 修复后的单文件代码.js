@@ -471,20 +471,79 @@ async function recognizeDrugFromImage(imageBase64, retryCount = 0) {
   }
 }
 
-// ========== 存储操作 ==========
-// 注意：这是一个简化的内存存储实现（临时方案）
-// 实际部署时需要替换为阿里云ESA边缘存储API
-// 边缘函数是无状态的，这个内存存储会在函数重启后丢失
-// 生产环境必须使用持久化存储
+// ========== 边缘存储操作 ==========
+// 阿里云ESA边缘存储API封装
+// 支持多种可能的API实现方式
 
-// 使用全局变量作为临时存储（仅用于测试）
-// 实际应该使用边缘存储API
-let memoryStorage = null;
-function getMemoryStorage() {
-  if (!memoryStorage) {
-    memoryStorage = new Map();
+// 尝试获取边缘存储对象（根据ESA实际提供的API调整）
+function getEdgeStorage() {
+  // 方式1: 全局edgeStorage对象
+  if (typeof edgeStorage !== 'undefined' && edgeStorage) {
+    return edgeStorage;
   }
-  return memoryStorage;
+  
+  // 方式2: 通过环境变量或全局对象
+  if (typeof globalThis !== 'undefined' && globalThis.edgeStorage) {
+    return globalThis.edgeStorage;
+  }
+  
+  // 方式3: 通过fetch调用存储API（如果ESA提供HTTP API）
+  // 这种方式需要知道存储API的endpoint
+  const storageEndpoint = getEnv('EDGE_STORAGE_ENDPOINT', '');
+  if (storageEndpoint) {
+    return {
+      async set(key, value) {
+        await fetch(`${storageEndpoint}/set`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, value })
+        });
+      },
+      async get(key) {
+        const res = await fetch(`${storageEndpoint}/get?key=${encodeURIComponent(key)}`);
+        const data = await res.json();
+        return data.value || null;
+      },
+      async delete(key) {
+        await fetch(`${storageEndpoint}/delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key })
+        });
+      },
+      async list(prefix) {
+        const res = await fetch(`${storageEndpoint}/list?prefix=${encodeURIComponent(prefix)}`);
+        const data = await res.json();
+        return data.keys || [];
+      }
+    };
+  }
+  
+  // 方式4: 使用内存存储作为后备（仅用于测试）
+  // 如果以上方式都不可用，使用内存存储（数据不会持久化）
+  if (!globalThis._memoryStorage) {
+    globalThis._memoryStorage = new Map();
+  }
+  return {
+    async set(key, value) {
+      globalThis._memoryStorage.set(key, value);
+    },
+    async get(key) {
+      return globalThis._memoryStorage.get(key) || null;
+    },
+    async delete(key) {
+      globalThis._memoryStorage.delete(key);
+    },
+    async list(prefix) {
+      const keys = [];
+      for (const key of globalThis._memoryStorage.keys()) {
+        if (key.startsWith(prefix)) {
+          keys.push(key);
+        }
+      }
+      return keys;
+    }
+  };
 }
 
 async function saveRecord(record) {
@@ -492,58 +551,96 @@ async function saveRecord(record) {
   const timestamp = record.timestamp || Date.now();
   const recordKey = `${config.storage.prefix}${timestamp}:${id}`;
   
-  // 临时使用内存存储
-  const storage = getMemoryStorage();
-  storage.set(recordKey, JSON.stringify(record));
+  const storage = getEdgeStorage();
+  const recordStr = JSON.stringify(record);
   
-  // 保存索引（用于查询）
-  const indexKey = `${config.storage.indexPrefix}all:${timestamp}:${id}`;
-  storage.set(indexKey, id);
-  
-  // 如果已保存到家庭药品清单，也保存一份
-  if (record.saved) {
-    const drugKey = `${config.storage.prefix}drug:${id}`;
-    storage.set(drugKey, JSON.stringify(record));
+  try {
+    // 保存主记录
+    await storage.set(recordKey, recordStr);
     
-    // 保存到药品清单索引
-    const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
-    storage.set(drugIndexKey, id);
+    // 保存索引（用于查询）
+    const indexKey = `${config.storage.indexPrefix}all:${timestamp}:${id}`;
+    await storage.set(indexKey, id);
+    
+    // 如果已保存到家庭药品清单，也保存一份
+    if (record.saved) {
+      const drugKey = `${config.storage.prefix}drug:${id}`;
+      await storage.set(drugKey, recordStr);
+      
+      // 保存到药品清单索引
+      const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
+      await storage.set(drugIndexKey, id);
+    }
+  } catch (e) {
+    console.error('保存记录失败:', e);
+    // 如果存储失败，仍然返回ID（允许继续处理）
   }
-  
-  // TODO: 实际部署时使用边缘存储API
-  // await edgeStorage.set(recordKey, JSON.stringify(record));
   
   return { id, key: recordKey };
 }
 
 async function getRecord(id) {
-  const storage = getMemoryStorage();
+  const storage = getEdgeStorage();
   
-  // 查找所有可能的key
-  for (const [key, value] of storage.entries()) {
-    if (key.includes(`:${id}`) && !key.includes('index')) {
-      try {
-        return JSON.parse(value);
-      } catch (e) {
-        continue;
+  try {
+    // 方式1: 尝试通过索引查找
+    const indexPrefix = `${config.storage.indexPrefix}all:`;
+    const keys = await storage.list(indexPrefix);
+    
+    for (const indexKey of keys) {
+      const recordId = await storage.get(indexKey);
+      if (recordId === id) {
+        // 找到对应的记录key
+        const recordKey = indexKey.replace(config.storage.indexPrefix + 'all:', config.storage.prefix);
+        const recordStr = await storage.get(recordKey);
+        if (recordStr) {
+          return JSON.parse(recordStr);
+        }
       }
     }
+    
+    // 方式2: 直接查找所有可能的key
+    const allKeys = await storage.list(config.storage.prefix);
+    for (const key of allKeys) {
+      if (key.includes(`:${id}`) && !key.includes('index')) {
+        const recordStr = await storage.get(key);
+        if (recordStr) {
+          try {
+            return JSON.parse(recordStr);
+          } catch (e) {
+            continue;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('获取记录失败:', e);
   }
   
   return null;
 }
 
 async function getHistoryRecords(page = 1, limit = 20, search = '') {
-  const storage = getMemoryStorage();
+  const storage = getEdgeStorage();
   const allRecords = [];
   const seenIds = new Set(); // 避免重复记录
   
-  // 从内存存储中获取所有记录
-  for (const [key, value] of storage.entries()) {
-    // 只处理主记录（不包含index的）
-    if (key.startsWith(config.storage.prefix) && !key.includes('index')) {
+  try {
+    // 获取所有记录key
+    const allKeys = await storage.list(config.storage.prefix);
+    
+    // 过滤出主记录（不包含index的）
+    const recordKeys = allKeys.filter(key => 
+      key.startsWith(config.storage.prefix) && !key.includes('index')
+    );
+    
+    // 获取所有记录
+    for (const key of recordKeys) {
       try {
-        const record = JSON.parse(value);
+        const recordStr = await storage.get(key);
+        if (!recordStr) continue;
+        
+        const record = JSON.parse(recordStr);
         
         // 跳过已处理的记录
         if (seenIds.has(record.id)) continue;
@@ -557,9 +654,14 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
         
         allRecords.push(record);
       } catch (e) {
+        console.error('解析记录失败:', key, e);
         continue;
       }
     }
+  } catch (e) {
+    console.error('查询历史记录失败:', e);
+    // 如果查询失败，返回空列表
+    return { records: [], total: 0, page, limit };
   }
   
   // 按时间倒序排序
@@ -575,35 +677,59 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
 
 // 保存药品到家庭药品清单
 async function saveDrugToInventory(drugInfo, recordId) {
-  const id = recordId || generateId();
-  const timestamp = Date.now();
+  const storage = getEdgeStorage();
+  let id = recordId;
+  let timestamp = Date.now();
+  let existingRecord = null;
   
-  // 构建药品记录
-  const drugRecord = {
-    id,
-    timestamp,
-    images: [],
-    recognitionResults: [],
-    mergedData: { ...drugInfo, edited: true },
-    saved: true,
-    status: 'completed'
-  };
+  // 如果recordId存在，尝试查找并更新已有记录
+  if (recordId) {
+    existingRecord = await getRecord(recordId);
+    if (existingRecord) {
+      timestamp = existingRecord.timestamp || timestamp;
+      // 更新已有记录
+      existingRecord.mergedData = { ...drugInfo, edited: true };
+      existingRecord.saved = true;
+      existingRecord.status = 'completed';
+    }
+  }
   
-  // 临时使用内存存储
-  const storage = getMemoryStorage();
-  const drugKey = `${config.storage.prefix}drug:${id}`;
-  storage.set(drugKey, JSON.stringify(drugRecord));
+  // 如果没有找到已有记录，创建新记录
+  if (!existingRecord) {
+    id = id || generateId();
+    existingRecord = {
+      id,
+      timestamp,
+      images: [],
+      recognitionResults: [],
+      mergedData: { ...drugInfo, edited: true },
+      saved: true,
+      status: 'completed'
+    };
+  }
   
-  // 保存到药品清单索引
-  const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
-  storage.set(drugIndexKey, id);
+  const recordStr = JSON.stringify(existingRecord);
   
-  // 同时保存到主记录
-  const recordKey = `${config.storage.prefix}${timestamp}:${id}`;
-  storage.set(recordKey, JSON.stringify(drugRecord));
-  
-  // TODO: 实际部署时使用边缘存储API
-  // await edgeStorage.set(drugKey, JSON.stringify(drugRecord));
+  try {
+    // 保存到多个位置，确保能查询到
+    const recordKey = `${config.storage.prefix}${timestamp}:${id}`;
+    await storage.set(recordKey, recordStr);
+    
+    // 保存到药品清单专用key
+    const drugKey = `${config.storage.prefix}drug:${id}`;
+    await storage.set(drugKey, recordStr);
+    
+    // 保存到药品清单索引
+    const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
+    await storage.set(drugIndexKey, id);
+    
+    // 保存到主索引
+    const mainIndexKey = `${config.storage.indexPrefix}all:${timestamp}:${id}`;
+    await storage.set(mainIndexKey, id);
+  } catch (e) {
+    console.error('保存药品失败:', e);
+    return { id, success: false, error: e.message };
+  }
   
   return { id, success: true };
 }

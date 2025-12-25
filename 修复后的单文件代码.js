@@ -483,38 +483,77 @@ function getEdgeStorage() {
   const edgeKvNamespace = getEnv('EDGE_KV_NAMESPACE', '');
   if (edgeKvNamespace) {
     try {
-      // 尝试使用 ESA EdgeKV API
-      // 注意：EdgeKV 可能需要在运行时动态导入或通过全局对象访问
+      // 尝试多种方式访问 EdgeKV
+      let EdgeKVClass = null;
+      
+      // 方式1.1: 全局 EdgeKV 类
       if (typeof EdgeKV !== 'undefined') {
-        const edgeKv = new EdgeKV({ namespace: edgeKvNamespace });
+        EdgeKVClass = EdgeKV;
+      }
+      // 方式1.2: 通过 globalThis 访问
+      else if (typeof globalThis !== 'undefined' && globalThis.EdgeKV) {
+        EdgeKVClass = globalThis.EdgeKV;
+      }
+      // 方式1.3: 通过 self 访问（Worker环境）
+      else if (typeof self !== 'undefined' && self.EdgeKV) {
+        EdgeKVClass = self.EdgeKV;
+      }
+      
+      if (EdgeKVClass) {
+        const edgeKv = new EdgeKVClass({ namespace: edgeKvNamespace });
+        console.log(`[getEdgeStorage] 使用EdgeKV API, namespace: ${edgeKvNamespace}`);
+        
         return {
           async set(key, value) {
-            await edgeKv.put(key, value);
+            try {
+              await edgeKv.put(key, value);
+            } catch (e) {
+              console.error(`[EdgeKV] put失败, key: ${key}`, e);
+              throw e;
+            }
           },
           async get(key) {
             try {
               const result = await edgeKv.get(key, { type: 'text' });
               return result || null;
             } catch (e) {
-              // 如果key不存在，返回null
+              // 如果key不存在，EdgeKV可能抛出异常，返回null
+              if (e.message && e.message.includes('not found')) {
+                return null;
+              }
+              console.error(`[EdgeKV] get失败, key: ${key}`, e);
               return null;
             }
           },
           async delete(key) {
-            await edgeKv.delete(key);
+            try {
+              await edgeKv.delete(key);
+            } catch (e) {
+              console.error(`[EdgeKV] delete失败, key: ${key}`, e);
+              throw e;
+            }
           },
           async list(prefix) {
             try {
-              // EdgeKV 可能支持 list 方法，需要根据实际API调整
+              // EdgeKV list方法可能支持prefix参数
+              // 根据官方文档，list方法可能返回 { keys: string[] }
               const result = await edgeKv.list({ prefix: prefix });
-              return result.keys || [];
+              if (result && Array.isArray(result.keys)) {
+                return result.keys;
+              } else if (Array.isArray(result)) {
+                // 如果直接返回数组
+                return result.filter(key => key.startsWith(prefix));
+              }
+              return [];
             } catch (e) {
-              // 如果不支持list，返回空数组
-              console.warn('EdgeKV list方法不可用:', e);
+              // 如果不支持list或list失败，返回空数组
+              console.warn(`[EdgeKV] list方法不可用或失败, prefix: ${prefix}`, e);
               return [];
             }
           }
         };
+      } else {
+        console.warn(`[getEdgeStorage] EdgeKV类不可用，namespace已配置: ${edgeKvNamespace}`);
       }
     } catch (e) {
       console.warn('EdgeKV初始化失败，尝试其他方式:', e);

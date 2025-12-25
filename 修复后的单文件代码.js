@@ -604,19 +604,27 @@ function getEdgeStorage() {
   
   // 方式5: 使用内存存储作为后备（仅用于测试）
   // 如果以上方式都不可用，使用内存存储（数据不会持久化）
-  console.warn('⚠️ 警告：使用内存存储（数据不会持久化），请配置ESA边缘存储');
+  // ⚠️ 警告：内存存储在函数重启后会丢失，仅用于测试
+  console.error('⚠️ 严重警告：使用内存存储（数据不会持久化）！');
+  console.error('请配置 EDGE_KV_NAMESPACE 环境变量以使用真正的EdgeKV存储');
+  console.error('当前配置的namespace:', getEnv('EDGE_KV_NAMESPACE', '未配置'));
+  
   if (!globalThis._memoryStorage) {
     globalThis._memoryStorage = new Map();
   }
   return {
     async set(key, value) {
       globalThis._memoryStorage.set(key, value);
+      console.warn(`[内存存储] set: ${key}`);
     },
     async get(key) {
-      return globalThis._memoryStorage.get(key) || null;
+      const value = globalThis._memoryStorage.get(key) || null;
+      console.warn(`[内存存储] get: ${key}, 存在: ${value !== null}`);
+      return value;
     },
     async delete(key) {
       globalThis._memoryStorage.delete(key);
+      console.warn(`[内存存储] delete: ${key}`);
     },
     async list(prefix) {
       const keys = [];
@@ -625,6 +633,7 @@ function getEdgeStorage() {
           keys.push(key);
         }
       }
+      console.warn(`[内存存储] list: prefix=${prefix}, 找到${keys.length}个key`);
       return keys;
     }
   };
@@ -710,30 +719,36 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
   const seenIds = new Set(); // 避免重复记录
   
   try {
-    // 获取所有记录key
-    const allKeys = await storage.list(config.storage.prefix);
+    // 优先查询药品清单专用的key（drug:开头的），避免查询到重复数据
+    const drugPrefix = `${config.storage.prefix}drug:`;
+    const drugKeys = await storage.list(drugPrefix);
     
-    // 过滤出主记录（不包含index的）
-    const recordKeys = allKeys.filter(key => 
-      key.startsWith(config.storage.prefix) && !key.includes('index')
-    );
+    console.log(`[getHistoryRecords] 找到 ${drugKeys.length} 个药品清单key (drug:开头)`);
     
-    console.log(`[getHistoryRecords] 找到 ${recordKeys.length} 个记录key`);
-    
-    // 获取所有记录
-    for (const key of recordKeys) {
+    // 从药品清单专用key获取记录
+    for (const key of drugKeys) {
       try {
         const recordStr = await storage.get(key);
         if (!recordStr) continue;
         
         const record = JSON.parse(recordStr);
         
-        // 跳过已处理的记录
-        if (seenIds.has(record.id)) continue;
+        // 跳过已处理的记录（通过ID去重）
+        if (seenIds.has(record.id)) {
+          console.log(`[getHistoryRecords] 跳过重复记录: ${record.id}`);
+          continue;
+        }
         seenIds.add(record.id);
         
         // 只返回已保存到家庭药品清单的记录（saved=true）
         if (!record.saved) {
+          console.log(`[getHistoryRecords] 跳过未保存记录: ${record.id}`);
+          continue;
+        }
+        
+        // 验证记录完整性
+        if (!record.mergedData || !record.id) {
+          console.warn(`[getHistoryRecords] 记录不完整: ${record.id}`);
           continue;
         }
         
@@ -745,16 +760,55 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
         
         allRecords.push(record);
       } catch (e) {
-        console.error('解析记录失败:', key, e);
+        console.error(`[getHistoryRecords] 解析记录失败, key: ${key}`, e);
         continue;
       }
     }
     
-    console.log(`[getHistoryRecords] 已保存的记录数: ${allRecords.length}`);
+    // 如果药品清单专用key查询不到数据，尝试查询主记录（兼容旧数据）
+    if (allRecords.length === 0) {
+      console.log(`[getHistoryRecords] 药品清单key为空，尝试查询主记录`);
+      const allKeys = await storage.list(config.storage.prefix);
+      const recordKeys = allKeys.filter(key => 
+        key.startsWith(config.storage.prefix) && 
+        !key.includes('index') && 
+        !key.startsWith(drugPrefix) // 排除drug:开头的，避免重复
+      );
+      
+      console.log(`[getHistoryRecords] 找到 ${recordKeys.length} 个主记录key`);
+      
+      for (const key of recordKeys) {
+        try {
+          const recordStr = await storage.get(key);
+          if (!recordStr) continue;
+          
+          const record = JSON.parse(recordStr);
+          
+          if (seenIds.has(record.id)) continue;
+          seenIds.add(record.id);
+          
+          if (!record.saved) continue;
+          
+          if (!record.mergedData || !record.id) continue;
+          
+          const drugName = record.mergedData?.name || '';
+          if (search && !drugName.includes(search)) {
+            continue;
+          }
+          
+          allRecords.push(record);
+        } catch (e) {
+          console.error(`[getHistoryRecords] 解析主记录失败, key: ${key}`, e);
+          continue;
+        }
+      }
+    }
+    
+    console.log(`[getHistoryRecords] 最终找到 ${allRecords.length} 条已保存记录`);
   } catch (e) {
-    console.error('查询历史记录失败:', e);
+    console.error('[getHistoryRecords] 查询历史记录失败:', e);
     // 如果查询失败，返回空列表
-    return { records: [], total: 0, page, limit, debug: { error: e.message } };
+    return { records: [], total: 0, page, limit, debug: { error: e.message, stack: e.stack } };
   }
   
   // 按时间倒序排序

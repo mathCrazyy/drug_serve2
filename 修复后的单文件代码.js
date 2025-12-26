@@ -1338,8 +1338,22 @@ export default {
         }
         
         try {
+          console.log(`[POST /drugs/save] 收到保存请求, drugInfo:`, JSON.stringify(requestBody.drugInfo));
+          console.log(`[POST /drugs/save] recordId:`, requestBody.recordId);
+          
           const result = await saveDrugToInventory(requestBody.drugInfo, requestBody.recordId);
+          
+          console.log(`[POST /drugs/save] 保存结果:`, JSON.stringify(result));
+          
           if (result.success) {
+            // 保存成功后，立即验证数据是否能查询到
+            try {
+              const testRecords = await getHistoryRecords(1, 10, '');
+              console.log(`[POST /drugs/save] 保存后立即查询测试: 找到 ${testRecords.records.length} 条记录`);
+            } catch (e) {
+              console.warn(`[POST /drugs/save] 保存后查询测试失败:`, e);
+            }
+            
             return new Response(JSON.stringify({ 
               success: true, 
               data: result
@@ -1357,7 +1371,7 @@ export default {
             });
           }
         } catch (e) {
-          console.error('保存药品异常:', e);
+          console.error('[POST /drugs/save] 保存药品异常:', e);
           return new Response(JSON.stringify({ 
             success: false, 
             error: '保存失败: ' + e.message,

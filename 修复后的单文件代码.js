@@ -915,10 +915,24 @@ async function saveDrugToInventory(drugInfo, recordId) {
     await storage.set(recordKey, recordStr);
     console.log(`[saveDrugToInventory] 保存主记录: ${recordKey}`);
     
-    // 保存到药品清单专用key
+    // 保存到药品清单专用key（这是查询时优先使用的key）
     const drugKey = `${config.storage.prefix}drug:${id}`;
     await storage.set(drugKey, recordStr);
     console.log(`[saveDrugToInventory] 保存药品记录: ${drugKey}`);
+    
+    // 验证药品清单key是否保存成功（重要：这是查询时使用的key）
+    const verifyDrugKey = await storage.get(drugKey);
+    if (verifyDrugKey) {
+      console.log(`[saveDrugToInventory] ✅ 验证药品清单key保存成功: ${drugKey}`);
+      try {
+        const verifyRecord = JSON.parse(verifyDrugKey);
+        console.log(`[saveDrugToInventory] 验证记录内容: id=${verifyRecord.id}, saved=${verifyRecord.saved}, name=${verifyRecord.mergedData?.name || 'N/A'}`);
+      } catch (e) {
+        console.warn(`[saveDrugToInventory] 验证记录解析失败:`, e);
+      }
+    } else {
+      console.error(`[saveDrugToInventory] ❌ 验证药品清单key保存失败: ${drugKey}`);
+    }
     
     // 保存到药品清单索引
     const drugIndexKey = `${config.storage.indexPrefix}drugs:${timestamp}:${id}`;
@@ -930,13 +944,13 @@ async function saveDrugToInventory(drugInfo, recordId) {
     await storage.set(mainIndexKey, id);
     console.log(`[saveDrugToInventory] 保存主索引: ${mainIndexKey}`);
     
-    // 验证保存是否成功
+    // 验证保存是否成功（验证主记录）
     const verifyKey = `${config.storage.prefix}${timestamp}:${id}`;
     const verifyValue = await storage.get(verifyKey);
     if (verifyValue) {
-      console.log(`[saveDrugToInventory] 验证保存成功: ${verifyKey}`);
+      console.log(`[saveDrugToInventory] ✅ 验证主记录保存成功: ${verifyKey}`);
     } else {
-      console.error(`[saveDrugToInventory] 验证保存失败: ${verifyKey}`);
+      console.error(`[saveDrugToInventory] ❌ 验证主记录保存失败: ${verifyKey}`);
     }
   } catch (e) {
     console.error('保存药品失败:', e);
@@ -1361,6 +1375,22 @@ export default {
                           (typeof globalThis !== 'undefined' && globalThis.EdgeKV) ||
                           (typeof self !== 'undefined' && self.EdgeKV);
         
+        // 尝试列出一些key来测试list方法
+        let testListResult = null;
+        try {
+          const testKeys = await storage.list(config.storage.prefix);
+          testListResult = {
+            success: true,
+            totalKeys: testKeys.length,
+            sampleKeys: testKeys.slice(0, 5) // 只显示前5个
+          };
+        } catch (e) {
+          testListResult = {
+            success: false,
+            error: e.message
+          };
+        }
+        
         return new Response(JSON.stringify({
           success: true,
           storage: {
@@ -1377,7 +1407,8 @@ export default {
           config: {
             storagePrefix: config.storage.prefix,
             indexPrefix: config.storage.indexPrefix
-          }
+          },
+          testList: testListResult
         }, null, 2), {
           status: 200,
           headers: { 
@@ -1385,6 +1416,58 @@ export default {
             'Content-Type': 'application/json; charset=utf-8'
           }
         });
+      } else if (method === 'GET' && pathname === '/test-kv') {
+        // 测试端点：测试EdgeKV的读写功能
+        const storage = getEdgeStorage();
+        const testKey = `test-key-${Date.now()}`;
+        const testValue = `test-value-${Date.now()}`;
+        
+        try {
+          // 写入测试
+          await storage.set(testKey, testValue);
+          console.log(`[test-kv] 写入成功: ${testKey} = ${testValue}`);
+          
+          // 立即读取测试
+          const immediateRead = await storage.get(testKey);
+          console.log(`[test-kv] 立即读取: ${immediateRead}`);
+          
+          // 列出所有test-key开头的key
+          const testKeys = await storage.list('test-key');
+          console.log(`[test-kv] 列出test-key开头的key: ${testKeys.length} 个`);
+          
+          return new Response(JSON.stringify({
+            success: true,
+            test: {
+              key: testKey,
+              writtenValue: testValue,
+              immediateRead: immediateRead,
+              match: testValue === immediateRead,
+              listResult: {
+                prefix: 'test-key',
+                count: testKeys.length,
+                keys: testKeys.slice(0, 10) // 只显示前10个
+              }
+            }
+          }, null, 2), {
+            status: 200,
+            headers: { 
+              ...corsHeaders, 
+              'Content-Type': 'application/json; charset=utf-8'
+            }
+          });
+        } catch (e) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: e.message,
+            stack: e.stack
+          }, null, 2), {
+            status: 500,
+            headers: { 
+              ...corsHeaders, 
+              'Content-Type': 'application/json; charset=utf-8'
+            }
+          });
+        }
       } else if (method === 'GET' && (pathname.startsWith('/history') || pathname.includes('/history'))) {
         const result = await handleHistory(request, pathname, searchParams);
         return new Response(result.body, {

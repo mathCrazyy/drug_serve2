@@ -8,6 +8,25 @@ function getEnv(key, defaultValue) {
   if (typeof process !== 'undefined' && process.env) {
     return process.env[key] || defaultValue;
   }
+  
+  // 临时方案：如果环境变量未配置，使用代码中的默认值
+  // ⚠️ 注意：生产环境建议在控制台配置环境变量，而不是在代码中硬编码
+  const hardcodedDefaults = {
+    'EDGE_KV_NAMESPACE': 'drug-storage',  // 临时默认值，建议在控制台配置
+    'DOUBAO_API_BASE_URL': 'https://api.chatfire.site/v1/chat/completions',
+    'DOUBAO_API_KEY': 'sk-pzZXi9zXV9ERBJFrjAVV4WEMj6u7TcTLtoNUkRfefSrLxlid',
+    'DOUBAO_MODEL': 'doubao-seed-1-6-vision-250815',
+    'DOUBAO_MAX_TOKENS': '1000',
+    'DOUBAO_TEMPERATURE': '0.1',
+    'STORAGE_PREFIX': 'drug_record:',
+    'STORAGE_INDEX_PREFIX': 'drug_index:'
+  };
+  
+  // 如果环境变量未配置，使用硬编码的默认值
+  if (hardcodedDefaults.hasOwnProperty(key)) {
+    return hardcodedDefaults[key];
+  }
+  
   // 如果 process 不可用，返回默认值（需要在控制台配置环境变量）
   return defaultValue;
 }

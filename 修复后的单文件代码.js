@@ -1305,6 +1305,38 @@ export default {
             headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
           });
         }
+      } else if (method === 'GET' && pathname === '/debug-storage') {
+        // 调试端点：查看存储配置和状态
+        const storage = getEdgeStorage();
+        const namespace = getEnv('EDGE_KV_NAMESPACE', '未配置');
+        const hasEdgeKV = typeof EdgeKV !== 'undefined' || 
+                          (typeof globalThis !== 'undefined' && globalThis.EdgeKV) ||
+                          (typeof self !== 'undefined' && self.EdgeKV);
+        
+        return new Response(JSON.stringify({
+          success: true,
+          storage: {
+            namespace: namespace,
+            hasEdgeKV: hasEdgeKV,
+            edgeKVAvailable: {
+              global: typeof EdgeKV !== 'undefined',
+              globalThis: typeof globalThis !== 'undefined' && !!globalThis.EdgeKV,
+              self: typeof self !== 'undefined' && !!self.EdgeKV
+            },
+            storageType: storage.constructor?.name || 'unknown',
+            isMemoryStorage: storage.set && storage.set.toString().includes('_memoryStorage')
+          },
+          config: {
+            storagePrefix: config.storage.prefix,
+            indexPrefix: config.storage.indexPrefix
+          }
+        }, null, 2), {
+          status: 200,
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json; charset=utf-8'
+          }
+        });
       } else if (method === 'GET' && (pathname.startsWith('/history') || pathname.includes('/history'))) {
         const result = await handleHistory(request, pathname, searchParams);
         return new Response(result.body, {
@@ -1320,7 +1352,8 @@ export default {
             'POST /recognize': '识别药品图片',
             'POST /drugs/save': '保存药品到家庭药品清单',
             'GET /history': '获取历史记录列表',
-            'GET /history/:id': '获取单条记录详情'
+            'GET /history/:id': '获取单条记录详情',
+            'GET /debug-storage': '调试存储配置（新增）'
           },
           debug: {
             pathname: pathname,

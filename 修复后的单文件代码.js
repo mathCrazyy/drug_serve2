@@ -740,15 +740,39 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
   try {
     // 优先查询药品清单专用的key（drug:开头的），避免查询到重复数据
     const drugPrefix = `${config.storage.prefix}drug:`;
-    const drugKeys = await storage.list(drugPrefix);
     
-    console.log(`[getHistoryRecords] 找到 ${drugKeys.length} 个药品清单key (drug:开头)`);
+    // 尝试多种查询方式
+    let drugKeys = [];
+    
+    // 方式1: 尝试查询drug:前缀的key
+    try {
+      drugKeys = await storage.list(drugPrefix);
+      console.log(`[getHistoryRecords] 方式1: 找到 ${drugKeys.length} 个药品清单key (drug:开头)`);
+    } catch (e) {
+      console.warn(`[getHistoryRecords] 方式1失败，尝试方式2:`, e);
+    }
+    
+    // 方式2: 如果方式1失败或返回空，尝试查询所有drug_record:开头的key，然后过滤
+    if (drugKeys.length === 0) {
+      try {
+        const allKeys = await storage.list(config.storage.prefix);
+        drugKeys = allKeys.filter(key => 
+          key.startsWith(drugPrefix) && !key.includes('index')
+        );
+        console.log(`[getHistoryRecords] 方式2: 从 ${allKeys.length} 个key中过滤出 ${drugKeys.length} 个药品清单key`);
+      } catch (e) {
+        console.warn(`[getHistoryRecords] 方式2失败:`, e);
+      }
+    }
     
     // 从药品清单专用key获取记录
     for (const key of drugKeys) {
       try {
         const recordStr = await storage.get(key);
-        if (!recordStr) continue;
+        if (!recordStr) {
+          console.warn(`[getHistoryRecords] key ${key} 的值为空`);
+          continue;
+        }
         
         const record = JSON.parse(recordStr);
         
@@ -761,13 +785,13 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
         
         // 只返回已保存到家庭药品清单的记录（saved=true）
         if (!record.saved) {
-          console.log(`[getHistoryRecords] 跳过未保存记录: ${record.id}`);
+          console.log(`[getHistoryRecords] 跳过未保存记录: ${record.id}, saved=${record.saved}`);
           continue;
         }
         
         // 验证记录完整性
         if (!record.mergedData || !record.id) {
-          console.warn(`[getHistoryRecords] 记录不完整: ${record.id}`);
+          console.warn(`[getHistoryRecords] 记录不完整: ${record.id}, mergedData=${!!record.mergedData}`);
           continue;
         }
         
@@ -778,6 +802,7 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
         }
         
         allRecords.push(record);
+        console.log(`[getHistoryRecords] 添加记录: ${record.id}, 药品名: ${drugName}`);
       } catch (e) {
         console.error(`[getHistoryRecords] 解析记录失败, key: ${key}`, e);
         continue;
@@ -787,39 +812,43 @@ async function getHistoryRecords(page = 1, limit = 20, search = '') {
     // 如果药品清单专用key查询不到数据，尝试查询主记录（兼容旧数据）
     if (allRecords.length === 0) {
       console.log(`[getHistoryRecords] 药品清单key为空，尝试查询主记录`);
-      const allKeys = await storage.list(config.storage.prefix);
-      const recordKeys = allKeys.filter(key => 
-        key.startsWith(config.storage.prefix) && 
-        !key.includes('index') && 
-        !key.startsWith(drugPrefix) // 排除drug:开头的，避免重复
-      );
-      
-      console.log(`[getHistoryRecords] 找到 ${recordKeys.length} 个主记录key`);
-      
-      for (const key of recordKeys) {
-        try {
-          const recordStr = await storage.get(key);
-          if (!recordStr) continue;
-          
-          const record = JSON.parse(recordStr);
-          
-          if (seenIds.has(record.id)) continue;
-          seenIds.add(record.id);
-          
-          if (!record.saved) continue;
-          
-          if (!record.mergedData || !record.id) continue;
-          
-          const drugName = record.mergedData?.name || '';
-          if (search && !drugName.includes(search)) {
+      try {
+        const allKeys = await storage.list(config.storage.prefix);
+        const recordKeys = allKeys.filter(key => 
+          key.startsWith(config.storage.prefix) && 
+          !key.includes('index') && 
+          !key.startsWith(drugPrefix) // 排除drug:开头的，避免重复
+        );
+        
+        console.log(`[getHistoryRecords] 找到 ${recordKeys.length} 个主记录key`);
+        
+        for (const key of recordKeys) {
+          try {
+            const recordStr = await storage.get(key);
+            if (!recordStr) continue;
+            
+            const record = JSON.parse(recordStr);
+            
+            if (seenIds.has(record.id)) continue;
+            seenIds.add(record.id);
+            
+            if (!record.saved) continue;
+            
+            if (!record.mergedData || !record.id) continue;
+            
+            const drugName = record.mergedData?.name || '';
+            if (search && !drugName.includes(search)) {
+              continue;
+            }
+            
+            allRecords.push(record);
+          } catch (e) {
+            console.error(`[getHistoryRecords] 解析主记录失败, key: ${key}`, e);
             continue;
           }
-          
-          allRecords.push(record);
-        } catch (e) {
-          console.error(`[getHistoryRecords] 解析主记录失败, key: ${key}`, e);
-          continue;
         }
+      } catch (e) {
+        console.error(`[getHistoryRecords] 查询主记录失败:`, e);
       }
     }
     

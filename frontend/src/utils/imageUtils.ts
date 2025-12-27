@@ -56,14 +56,23 @@ function compressImage(file: File, maxWidth: number = 1920, maxHeight: number = 
 }
 
 export async function imageToBase64(file: File): Promise<string> {
-  // 如果图片大于2MB，先压缩
+  // 优化压缩策略：更激进的压缩以减少base64数据大小
   let processedFile = file;
-  if (file.size > 2 * 1024 * 1024) {
+  
+  // 如果图片大于1MB，就开始压缩（降低阈值）
+  if (file.size > 1 * 1024 * 1024) {
     try {
-      processedFile = await compressImage(file, 1920, 1920, 0.8);
-      // 如果压缩后仍然很大，进一步压缩
-      if (processedFile.size > 2 * 1024 * 1024) {
-        processedFile = await compressImage(file, 1280, 1280, 0.7);
+      // 第一轮压缩：1920x1920, 质量0.7
+      processedFile = await compressImage(file, 1920, 1920, 0.7);
+      
+      // 如果压缩后仍然大于1.5MB，进一步压缩
+      if (processedFile.size > 1.5 * 1024 * 1024) {
+        processedFile = await compressImage(file, 1280, 1280, 0.6);
+      }
+      
+      // 如果仍然大于1MB，最激进压缩
+      if (processedFile.size > 1 * 1024 * 1024) {
+        processedFile = await compressImage(file, 1024, 1024, 0.5);
       }
     } catch (e) {
       console.warn('图片压缩失败，使用原图:', e);

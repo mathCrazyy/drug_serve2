@@ -277,10 +277,11 @@ async function recognizeDrugFromImage(imageBase64, retryCount = 0) {
   const base64Size = imageBase64 ? imageBase64.length : 0;
   const estimatedSizeMB = (base64Size * 3 / 4) / (1024 * 1024);
   
-  if (estimatedSizeMB > 5) {
+  // 降低大小限制，避免超时（从5MB降低到2MB）
+  if (estimatedSizeMB > 2) {
     return { 
       success: false, 
-      error: `图片过大（约${estimatedSizeMB.toFixed(2)}MB），请压缩后重试`, 
+      error: `图片过大（约${estimatedSizeMB.toFixed(2)}MB），请压缩后重试（建议小于2MB）`, 
       raw_text: '', 
       extracted_data: {} 
     };
@@ -1050,56 +1051,55 @@ async function handleRecognize(request) {
       type: img.type || 'image/jpeg'
     }));
     
-    // 限制并发数量，避免超时（一次最多处理3张图片）
-    const maxConcurrent = 3;
+    // 改为串行处理，避免并发导致总时间超过网关超时
+    // 网关超时通常为30-60秒，串行处理可以更好地控制总时间
     const recognitionResults = [];
     
-    // 分批处理图片
-    for (let i = 0; i < images.length; i += maxConcurrent) {
-      const batch = images.slice(i, i + maxConcurrent);
-      const batchPromises = batch.map(async (img, batchIndex) => {
-        const index = i + batchIndex;
-        try {
-          // 添加超时控制（25秒）
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('识别超时')), 25000);
-          });
-          
-          const result = await Promise.race([
-            recognizeDrugFromImage(img.base64),
-            timeoutPromise
-          ]);
+    // 串行处理图片（一张一张处理）
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      try {
+        // 减少单张图片的超时时间（20秒），确保总时间不超过网关超时
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('识别超时（20秒）')), 20000);
+        });
+        
+        const result = await Promise.race([
+          recognizeDrugFromImage(img.base64),
+          timeoutPromise
+        ]);
           
           if (result.success) {
             // 解析识别结果
             const extractedData = parseDrugInfo(result.raw_text);
             
-            return { 
-              imageIndex: index, 
+            recognitionResults.push({ 
+              imageIndex: i, 
               rawText: result.raw_text || '', 
               extractedData,
               parseSuccess: Object.values(extractedData).some(v => v && v.trim() !== '')
-            };
+            });
           } else {
-            return {
-              imageIndex: index,
+            recognitionResults.push({
+              imageIndex: i,
               rawText: '',
               extractedData: { name: '', brand: '', manufacturer: '', production_date: '', expiry_date: '', batch_number: '', dosage_form: '', strength: '' },
               error: result.error
-            };
+            });
           }
         } catch (e) {
-          return {
-            imageIndex: index,
+          recognitionResults.push({
+            imageIndex: i,
             rawText: '',
             extractedData: { name: '', brand: '', manufacturer: '', production_date: '', expiry_date: '', batch_number: '', dosage_form: '', strength: '' },
             error: e.message || '识别失败'
-          };
+          });
         }
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      recognitionResults.push(...batchResults);
+        
+        // 每处理完一张图片后稍作延迟，避免API限流
+        if (i < images.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
     }
     const mergedData = mergeDrugInfo(recognitionResults);
     

@@ -58,26 +58,37 @@ function compressImage(file: File, maxWidth: number = 1920, maxHeight: number = 
 export async function imageToBase64(file: File): Promise<string> {
   // 优化压缩策略：更激进的压缩以减少base64数据大小
   let processedFile = file;
+  const originalSize = file.size;
   
-  // 如果图片大于1MB，就开始压缩（降低阈值）
-  if (file.size > 1 * 1024 * 1024) {
+  // 降低压缩阈值：从1MB降低到500KB，确保所有图片都经过压缩
+  if (file.size > 500 * 1024) {
     try {
-      // 第一轮压缩：1920x1920, 质量0.7
-      processedFile = await compressImage(file, 1920, 1920, 0.7);
+      console.log(`[图片压缩] 原始大小: ${(originalSize / 1024).toFixed(2)}KB`);
       
-      // 如果压缩后仍然大于1.5MB，进一步压缩
-      if (processedFile.size > 1.5 * 1024 * 1024) {
-        processedFile = await compressImage(file, 1280, 1280, 0.6);
-      }
+      // 第一轮压缩：1280x1280, 质量0.6（更激进的初始压缩）
+      processedFile = await compressImage(file, 1280, 1280, 0.6);
+      console.log(`[图片压缩] 第一轮后: ${(processedFile.size / 1024).toFixed(2)}KB`);
       
-      // 如果仍然大于1MB，最激进压缩
-      if (processedFile.size > 1 * 1024 * 1024) {
+      // 如果压缩后仍然大于800KB，进一步压缩
+      if (processedFile.size > 800 * 1024) {
         processedFile = await compressImage(file, 1024, 1024, 0.5);
+        console.log(`[图片压缩] 第二轮后: ${(processedFile.size / 1024).toFixed(2)}KB`);
       }
+      
+      // 如果仍然大于500KB，最激进压缩
+      if (processedFile.size > 500 * 1024) {
+        processedFile = await compressImage(file, 800, 800, 0.4);
+        console.log(`[图片压缩] 第三轮后: ${(processedFile.size / 1024).toFixed(2)}KB`);
+      }
+      
+      const compressionRatio = ((1 - processedFile.size / originalSize) * 100).toFixed(1);
+      console.log(`[图片压缩] 压缩率: ${compressionRatio}%`);
     } catch (e) {
       console.warn('图片压缩失败，使用原图:', e);
       processedFile = file;
     }
+  } else {
+    console.log(`[图片压缩] 图片较小(${(originalSize / 1024).toFixed(2)}KB)，跳过压缩`);
   }
 
   return new Promise((resolve, reject) => {

@@ -22,9 +22,23 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   // 构建完整的请求URL
   const fullUrl = API_BASE_URL ? `${API_BASE_URL}${url}` : url;
   
-  // 调试：输出请求URL（仅在开发环境）
-  if (import.meta.env.DEV) {
-    console.log('[API] 请求URL:', fullUrl);
+  // 计算请求体大小（用于调试）
+  let requestBodySize = 0;
+  if (options?.body) {
+    if (typeof options.body === 'string') {
+      requestBodySize = new Blob([options.body]).size;
+    } else if (options.body instanceof FormData || options.body instanceof Blob) {
+      requestBodySize = options.body.size || 0;
+    }
+  }
+  
+  // 调试：输出请求信息
+  console.log('[API] 请求URL:', fullUrl);
+  if (requestBodySize > 0) {
+    console.log(`[API] 请求体大小: ${(requestBodySize / 1024).toFixed(2)}KB`);
+    if (requestBodySize > 200 * 1024) {
+      console.warn(`[API] ⚠️ 请求体较大(${(requestBodySize / 1024).toFixed(2)}KB)，可能导致超时`);
+    }
   }
   
   try {
@@ -38,6 +52,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     
     if (!response.ok) {
       const errorText = await response.text().catch(() => '无法读取错误信息');
+      
+      // 特殊处理504超时错误
+      if (response.status === 504) {
+        throw new Error(`网关超时(504): 边缘函数执行时间过长。建议：
+1. 检查边缘函数超时设置（建议≥90秒）
+2. 减少图片数量或大小
+3. 查看边缘函数日志确认具体超时位置`);
+      }
+      
       throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
     }
     

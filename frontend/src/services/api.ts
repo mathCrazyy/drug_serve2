@@ -27,8 +27,11 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   if (options?.body) {
     if (typeof options.body === 'string') {
       requestBodySize = new Blob([options.body]).size;
-    } else if (options.body instanceof FormData || options.body instanceof Blob) {
-      requestBodySize = options.body.size || 0;
+    } else if (options.body instanceof Blob) {
+      requestBodySize = options.body.size;
+    } else if (options.body instanceof FormData) {
+      // FormData 没有 size 属性，跳过大小计算
+      requestBodySize = 0;
     }
   }
   
